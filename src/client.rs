@@ -136,7 +136,7 @@ impl<'a> Default for ClientBuilder<'a> {
 impl<'a> ClientBuilder<'a> {
     /// Set the socket path.
     #[must_use]
-    pub fn with_socket_path(mut self, path: &'static str) -> Self {
+    pub fn with_socket_path(mut self, path: &'a str) -> Self {
         self.socket_path = path;
 
         self
@@ -144,7 +144,7 @@ impl<'a> ClientBuilder<'a> {
 
     /// Set the client name.
     #[must_use]
-    pub fn with_name(mut self, name: &'static str) -> Self {
+    pub fn with_name(mut self, name: &'a str) -> Self {
         self.name = name;
 
         self
