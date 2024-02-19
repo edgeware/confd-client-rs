@@ -11,19 +11,19 @@ struct SocketCallback {
     callback: Box<dyn AsyncCallback + Sync + Send + 'static>,
 }
 
-pub struct Client<'a> {
-    client_name: &'a str,
-    socket_path: &'a str,
+pub struct Client {
+    client_name: String,
+    socket_path: PathBuf,
     subscribers: BTreeMap<PathBuf, SocketCallback>,
 }
 
-impl<'a> Client<'a> {
+impl Client {
     /// Create a new `confd` client.
     #[must_use]
-    pub fn new(client_name: &'a str, socket_path: &'a str) -> Client<'a> {
+    pub fn new<P: AsRef<Path>>(client_name: &str, socket_path: P) -> Client {
         Self {
-            client_name,
-            socket_path,
+            client_name: client_name.to_string(),
+            socket_path: socket_path.as_ref().to_owned(),
             subscribers: BTreeMap::new(),
         }
     }
@@ -41,7 +41,7 @@ impl<'a> Client<'a> {
     /// This function will return an `Error` if either there is a problem
     /// connecting to the socket or if the subscription request cannot be
     /// written to the socket.
-    pub async fn subscribe<P>(
+    pub async fn subscribe<P: AsRef<Path>>(
         &mut self,
         path: P,
         callback: Box<dyn AsyncCallback + Sync + Send + 'static>,
@@ -58,8 +58,11 @@ impl<'a> Client<'a> {
         }))
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
 
-        log::debug!("Connecting to socket {}", self.socket_path);
-        let mut socket = UnixStream::connect(self.socket_path).await?;
+        log::debug!(
+            "Connecting to socket {}",
+            self.socket_path.to_string_lossy()
+        );
+        let mut socket = UnixStream::connect(&self.socket_path).await?;
 
         log::debug!("Sending subscription request {}", subscription_req);
         confd::send(&mut socket, subscription_req).await?;
@@ -117,49 +120,46 @@ impl<'a> Client<'a> {
 }
 
 #[allow(clippy::module_name_repetitions)]
-pub struct ClientBuilder<'a> {
-    name: &'a str,
-    socket_path: &'a str,
+pub struct ClientBuilder {
+    name: String,
+    socket_path: PathBuf,
     subscribers: BTreeMap<PathBuf, Box<dyn AsyncCallback + Sync + Send + 'static>>,
 }
 
-impl<'a> Default for ClientBuilder<'a> {
+impl Default for ClientBuilder {
     fn default() -> Self {
         Self {
-            name: "confd-rs-client",
-            socket_path: "/var/confd/service-interface.socket",
+            name: String::from("confd-rs-client"),
+            socket_path: PathBuf::from("/var/confd/service-interface.socket"),
             subscribers: BTreeMap::default(),
         }
     }
 }
 
-impl<'a> ClientBuilder<'a> {
+impl ClientBuilder {
     /// Set the socket path.
     #[must_use]
-    pub fn with_socket_path(mut self, path: &'a str) -> Self {
-        self.socket_path = path;
+    pub fn with_socket_path(mut self, path: PathBuf) -> Self {
+        self.socket_path = path.clone();
 
         self
     }
 
     /// Set the client name.
     #[must_use]
-    pub fn with_name(mut self, name: &'a str) -> Self {
-        self.name = name;
+    pub fn with_name(mut self, name: &str) -> Self {
+        self.name = String::from(name);
 
         self
     }
 
     /// Register a callback function as a subscription for the given path.
     #[must_use]
-    pub fn with_subscription<P>(
+    pub fn with_subscription<P: AsRef<Path>>(
         mut self,
         path: P,
         callback: Box<dyn AsyncCallback + Sync + Send + 'static>,
-    ) -> Self
-    where
-        P: AsRef<Path>,
-    {
+    ) -> Self {
         self.subscribers.insert(path.as_ref().to_owned(), callback);
 
         self
@@ -175,11 +175,11 @@ impl<'a> ClientBuilder<'a> {
     /// This function will return an `Error` if any of the subscription
     /// requests fail.  The most likely reason for this is that the
     /// we are unable to write to the socket.
-    pub async fn build(self) -> Result<Client<'a>> {
-        let mut client = Client::new(self.name, self.socket_path);
+    pub async fn build(self) -> Result<Client> {
+        let mut client = Client::new(&self.name, &self.socket_path);
 
         for (path, callback) in self.subscribers {
-            client.subscribe(path, callback).await?;
+            client.subscribe(path.clone(), callback).await?;
         }
 
         Ok(client)
